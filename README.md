@@ -20,6 +20,29 @@ pieces connect*.
 
 ---
 
+## Deploy as one Elastic Beanstalk container
+
+The repository includes a root `Dockerfile` for a single-container deployment.
+It builds the React frontend and Go API together; the Go server serves both the
+frontend and `/api` endpoints on port `8080`. PostgreSQL remains a separate,
+managed database and is not included in the application image.
+
+Before deploying:
+
+1. Create a managed PostgreSQL database and apply `init/postgres/01_schema.sql`.
+2. Set `POSTGRES_URL` to that database's connection string. Do not commit the
+   connection string or put it in the Docker image.
+3. Push the root `Dockerfile` and backend changes to a public GitHub repository.
+4. Deploy the repository URL with EBKit and port `8080`, providing `POSTGRES_URL`
+   via a local, gitignored env file.
+
+The backend now exposes its API at `/api/...` for the bundled frontend and keeps
+the original root API paths for local Compose development. The `FRONTEND_DIR`
+variable enables static-file serving and client-side route fallback; the root
+Dockerfile sets it to the built frontend directory.
+
+---
+
 ## What you need
 
 - **Docker** (with Docker Compose, which comes with Docker Desktop).
@@ -273,5 +296,4 @@ To allow the CI pipeline to build and push images to Docker Hub:
    - `DOCKERHUB_USERNAME`: Your Docker Hub username.
 3. Under the **Secrets** tab, add:
    - `DOCKERHUB_TOKEN`: A Personal Access Token (PAT) generated from Docker Hub.
-
 

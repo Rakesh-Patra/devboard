@@ -12,7 +12,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -44,6 +46,10 @@ type Project struct {
 }
 
 func main() {
+	if os.Getenv("POSTGRES_URL") == "" {
+		log.Fatal("[backend] POSTGRES_URL is required")
+	}
+
 	dsn := env("POSTGRES_URL", "postgres://devboard:devboard@localhost:5432/devboard?sslmode=disable")
 
 	var err error
@@ -72,17 +78,65 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "backend"})
 	})
 
+	registerAPIRoutes(r)
+	registerAPIRoutes(r.Group("/api"))
+
+	if frontendDir := os.Getenv("FRONTEND_DIR"); frontendDir != "" {
+		r.NoRoute(serveFrontend(frontendDir))
+	}
+
+	port := env("PORT", "8080")
+	log.Printf("[backend] listening on :%s", port)
+	if err := r.Run(":" + port); err != nil {
+		log.Fatalf("[backend] FATAL: %v", err)
+	}
+}
+
+func registerAPIRoutes(r gin.IRoutes) {
 	r.GET("/projects", listProjects)
 	r.POST("/projects", createProject)
 	r.GET("/tasks", listTasks)
 	r.POST("/tasks", createTask)
 	r.PATCH("/tasks/:id", updateTask)
 	r.GET("/search", searchTasks)
+}
 
-	port := env("PORT", "8080")
-	log.Printf("[backend] listening on :%s", port)
-	if err := r.Run(":" + port); err != nil {
-		log.Fatalf("[backend] FATAL: %v", err)
+func serveFrontend(frontendDir string) gin.HandlerFunc {
+	root := filepath.Clean(frontendDir)
+	indexFile := filepath.Join(root, "index.html")
+	return func(c *gin.Context) {
+		requestPath := c.Request.URL.Path
+		if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		if requestPath == "/api" || strings.HasPrefix(requestPath, "/api/") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+
+		relativePath := filepath.Clean(strings.TrimPrefix(requestPath, "/"))
+		if relativePath == "." {
+			relativePath = "index.html"
+		}
+		filePath := filepath.Join(root, relativePath)
+		relativeToRoot, err := filepath.Rel(root, filePath)
+		if err != nil || relativeToRoot == ".." ||
+			strings.HasPrefix(relativeToRoot, ".."+string(os.PathSeparator)) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+
+		if info, err := os.Stat(filePath); err == nil && !info.IsDir() {
+			c.File(filePath)
+			return
+		}
+		if filepath.Ext(relativePath) != "" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+
+		c.File(indexFile)
 	}
 }
 
